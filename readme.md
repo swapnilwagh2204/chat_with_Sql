@@ -29,7 +29,7 @@ Install the required packages:
 pip install -r requirements.txt
 ```
 
-Create your own .env file with the necessary variables, including your OpenAI API key:
+Create your own .env ( Take reference from .env.example ) file with the necessary variables, including your OpenAI API key:
 
 ```bash
 OPENAI_API_KEY=[your-openai-api-key]

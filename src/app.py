@@ -13,7 +13,7 @@ password = os.getenv("db_pass", "password")
 host = os.getenv("db_host", "")
 port = os.getenv("db_port", "3306")
 database = os.getenv("db_name", "ig")
-llm_api_key = os.getenv("GOOGLE_VERTEX_API_KEY")
+llm_api_key = os.getenv("OPENAI_API_KEY", "")
 
 
 # Initialize session state keys
