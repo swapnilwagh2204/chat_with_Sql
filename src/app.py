@@ -2,20 +2,32 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
 import streamlit as st
 from utils import init_database, get_response
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+user = os.getenv("db_user", "user")
+password = os.getenv("db_pass", "password")
+host = os.getenv("db_host", "")
+port = os.getenv("db_port", "3306")
+database = os.getenv("db_name", "ig")
+llm_api_key = os.getenv("GOOGLE_VERTEX_API_KEY")
 
 
 # Initialize session state keys
 def initialize_session_state():
     default_values = {
-        "User": "root",
-        "Password": "",
-        "Host": "localhost",
-        "Port": "3306",
-        "Database": "ig",
+        "User": user,
+        "Password": password,
+        "Host": host,
+        "Port": port,
+        "Database": database,
         "chat_history": [
             AIMessage(
-                content="Hello! I'm a SQL assistant. Ask me anything about your database."
-            )
+                content="Hello! I'm a Clinical data assistant. Ask me anything related to clinical data."
+            ),
         ],
     }
     for key, value in default_values.items():
@@ -28,14 +40,16 @@ def render_sidebar():
     with st.sidebar:
         st.subheader("Settings")
         st.write(
-            "This is a simple chat application using MySQL. Connect to the database and start chatting."
+            "This is simple chat application using MySQL. Connect to the database and start chatting."
         )
 
-        st.text_input("Host", value="localhost", key="Host")
-        st.text_input("Port", value="3306", key="Port")
-        st.text_input("User", value="root", key="User")
-        st.text_input("Password", type="password", value="", key="Password")
-        st.text_input("Database", value="ig", key="Database")
+        st.text_input("Host", value=host, key="Host")
+        st.text_input("Port", value=port, key="Port")
+        st.text_input("User", value=user, key="User")
+        st.text_input(
+            "Password", type="password", value=password, key="Password"
+        )  # Fixed type argument
+        st.text_input("Database", value=database, key="Database")
 
         if st.button("Connect"):
             connect_to_database()
@@ -81,7 +95,10 @@ def handle_user_input():
         with st.chat_message("AI"):
             try:
                 response = get_response(
-                    user_query, st.session_state.db, st.session_state.chat_history
+                    user_query,
+                    st.session_state.db,
+                    st.session_state.chat_history,
+                    llm_api_key,
                 )
             except Exception:
                 response = "Sorry, The question is out of my context. Ask me only database-related questions."
@@ -94,7 +111,7 @@ def handle_user_input():
 def main():
     load_dotenv()
     st.set_page_config(page_title="Chat with MySQL", page_icon=":speech_balloon:")
-    st.title("Chat with MySQL Database")
+    st.title("Chat with Clinical Data Assistant")
 
     initialize_session_state()
     render_sidebar()

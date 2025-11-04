@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: clinical_db_container
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${db_user}
+      POSTGRES_PASSWORD: ${db_pass}
+      POSTGRES_DB: ${db_name}
+    ports:
+      - "${db_port}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
