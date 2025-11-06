@@ -1,16 +1,16 @@
-import streamlit as st
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
-from langchain_community.utilities import SQLDatabase
-from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
-from sqlalchemy import create_engine
-from dotenv import load_dotenv
-import httpx
-
 import logging
 import os
 import time
+
+import httpx
+import streamlit as st
+from dotenv import load_dotenv
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_community.utilities import SQLDatabase
+from langchain_openai import ChatOpenAI
+from sqlalchemy import create_engine
 
 # Load environment variables from .env file
 load_dotenv()
@@ -23,11 +23,19 @@ if not logger.handlers:
         level=getattr(logging, level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     )
+logger.debug("utils module imported and logging configured")
 
 
 def init_database(
     user: str, password: str, host: str, port: str, database: str
 ) -> SQLDatabase:
+    logger.debug(
+        "init_database called with user=%s host=%s port=%s database=%s",
+        user,
+        host,
+        port,
+        database,
+    )
     # Log connection intent
     logger.info(
         "Connecting to PostgreSQL host=%s port=%s db=%s user=%s",
@@ -39,6 +47,7 @@ def init_database(
 
     # SQLAlchemy echo via SQLALCHEMY_ECHO=1 for verbose SQL logs
     echo = str(os.getenv("SQLALCHEMY_ECHO", "0")).lower() in ("1", "true", "yes")
+    logger.debug("SQLAlchemy echo enabled: %s", echo)
     engine = create_engine(
         f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}",
         pool_pre_ping=True,
@@ -47,6 +56,7 @@ def init_database(
     try:
         # Smoke test
         with engine.connect() as conn:
+            logger.debug("Running connection smoke test query")
             conn.exec_driver_sql("SELECT 1")
         logger.info("PostgreSQL connection OK")
     except Exception:
@@ -57,6 +67,7 @@ def init_database(
 
 
 def get_sql_chain(db, llm_api_key: str) -> RunnablePassthrough:
+    logger.debug("Initialising SQL generation chain")
     template = """
     You are a data analyst at a company. You are interacting with a user who is asking you questions about the company's database.
     Based on the table schema below, write a SQL query that would answer the user's question. Take the conversation history into account.
@@ -85,6 +96,7 @@ def get_sql_chain(db, llm_api_key: str) -> RunnablePassthrough:
     # Get AI Café API configuration from environment variables
     base_url = os.getenv("AICAFE_BASE_URL")
     api_version = os.getenv("AICAFE_API_VERSION")
+    logger.debug("AI Café config base_url=%s api_version=%s", base_url, api_version)
 
     if not base_url:
         raise ValueError(
@@ -100,42 +112,57 @@ def get_sql_chain(db, llm_api_key: str) -> RunnablePassthrough:
     def add_api_version(request: httpx.Request) -> None:
         # Add api-version query parameter if not present
         url_str = str(request.url)
+        logger.debug("Adding api-version to request url=%s", url_str)
         if "api-version" not in url_str:
             separator = "&" if "?" in url_str else "?"
             request.url = httpx.URL(f"{url_str}{separator}api-version={api_version}")
 
-    http_client = httpx.Client(
-        headers={"api-key": llm_api_key},
-        event_hooks={"request": [add_api_version]},
-        timeout=60.0,
-    )
+    try:
+        http_client = httpx.Client(
+            headers={"api-key": llm_api_key},
+            event_hooks={"request": [add_api_version]},
+            timeout=60.0,
+        )
+    except Exception:
+        logger.exception("Failed to create HTTP client for AI Café API")
+        raise
 
     # Configure ChatOpenAI directly with AI Café API settings
-    llm = ChatOpenAI(
-        model="gpt-4.1",
-        api_key=llm_api_key,
-        base_url=base_url,
-        default_headers={"api-key": llm_api_key},
-        http_client=http_client,
-    )
+    try:
+        llm = ChatOpenAI(
+            model="gpt-4.1",
+            api_key=llm_api_key,
+            base_url=base_url,
+            default_headers={"api-key": llm_api_key},
+            http_client=http_client,
+        )
+    except Exception:
+        logger.exception("Failed to configure ChatOpenAI client")
+        raise
     # llm = GoogleGenerativeAI(
     #     model="gemini-2.5-flash-preview-05-20", api_key=llm_api_key
     # )
 
     def get_schema(_):
+        logger.debug("Retrieving schema for SQL generation")
         return db.get_table_info()
 
-    return (
+    chain = (
         RunnablePassthrough.assign(schema=get_schema) | prompt | llm | StrOutputParser()
     )
+    logger.debug("SQL chain ready")
+    return chain
 
 
 def get_response(
     user_query: str, db: SQLDatabase, chat_history: list, llm_api_key: str
 ) -> str:
+    logger.info("Handling user query: %s", user_query)
+    logger.debug("Chat history currently has %d messages", len(chat_history))
     sql_chain = get_sql_chain(db, llm_api_key)
 
     # Generate SQL and log it
+    logger.debug("Invoking SQL chain with user query")
     sql_query = sql_chain.invoke({"question": user_query, "chat_history": chat_history})
     logger.info("Generated SQL: %s", sql_query)
 
@@ -143,6 +170,7 @@ def get_response(
     def timed_db_run(query: str):
         t0 = time.perf_counter()
         try:
+            logger.debug("Executing SQL query against database")
             return db.run(query)
         finally:
             dt = time.perf_counter() - t0
@@ -168,6 +196,7 @@ def get_response(
     # Get AI Café API configuration from environment variables
     base_url = os.getenv("AICAFE_BASE_URL")
     api_version = os.getenv("AICAFE_API_VERSION")
+    logger.debug("Response chain using base_url=%s api_version=%s", base_url, api_version)
 
     if not base_url:
         raise ValueError(
@@ -183,24 +212,33 @@ def get_response(
     def add_api_version(request: httpx.Request) -> None:
         # Add api-version query parameter if not present
         url_str = str(request.url)
+        logger.debug("Adding api-version to response request url=%s", url_str)
         if "api-version" not in url_str:
             separator = "&" if "?" in url_str else "?"
             request.url = httpx.URL(f"{url_str}{separator}api-version={api_version}")
 
-    http_client = httpx.Client(
-        headers={"api-key": llm_api_key},
-        event_hooks={"request": [add_api_version]},
-        timeout=60.0,
-    )
+    try:
+        http_client = httpx.Client(
+            headers={"api-key": llm_api_key},
+            event_hooks={"request": [add_api_version]},
+            timeout=60.0,
+        )
+    except Exception:
+        logger.exception("Failed to create HTTP client for response generation")
+        raise
 
     # Configure ChatOpenAI directly with AI Café API settings
-    llm = ChatOpenAI(
-        model="gpt-4.1",
-        api_key=llm_api_key,
-        base_url=base_url,
-        default_headers={"api-key": llm_api_key},
-        http_client=http_client,
-    )
+    try:
+        llm = ChatOpenAI(
+            model="gpt-4.1",
+            api_key=llm_api_key,
+            base_url=base_url,
+            default_headers={"api-key": llm_api_key},
+            http_client=http_client,
+        )
+    except Exception:
+        logger.exception("Failed to configure ChatOpenAI for response generation")
+        raise
 
     chain = (
         RunnablePassthrough.assign(query=lambda _: sql_query).assign(
@@ -221,4 +259,7 @@ def get_response(
     except Exception:
         logger.debug("Streamlit not available for UI output")
 
-    return chain.invoke({"question": user_query, "chat_history": chat_history})
+    logger.debug("Invoking response chain")
+    response_text = chain.invoke({"question": user_query, "chat_history": chat_history})
+    logger.info("Produced natural language response")
+    return response_text
