@@ -1,0 +1,8 @@
+streamlit
+python-dotenv
+langchain-core
+langchain_community
+langchain-openai
+openai
+httpx
+psycopg2-binary 

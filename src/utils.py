@@ -5,9 +5,15 @@ from langchain_community.utilities import SQLDatabase
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 from sqlalchemy import create_engine
+from dotenv import load_dotenv
+import httpx
 
 import logging
-import os, time
+import os
+import time
+
+# Load environment variables from .env file
+load_dotenv()
 
 # App logging setup (level via LOG_LEVEL=DEBUG|INFO|WARNING|ERROR)
 logger = logging.getLogger("chat_with_sql")
@@ -76,7 +82,42 @@ def get_sql_chain(db, llm_api_key: str) -> RunnablePassthrough:
 
     prompt = ChatPromptTemplate.from_template(template)
 
-    llm = ChatOpenAI(model="gpt-4-0125-preview")
+    # Get AI Café API configuration from environment variables
+    base_url = os.getenv("AICAFE_BASE_URL")
+    api_version = os.getenv("AICAFE_API_VERSION")
+
+    if not base_url:
+        raise ValueError(
+            "AICAFE_BASE_URL environment variable is required. Please set it in your .env file."
+        )
+    if not api_version:
+        raise ValueError(
+            "AICAFE_API_VERSION environment variable is required. Please set it in your .env file."
+        )
+
+    # Create custom HTTP client for AI Café API with query parameter
+    # Use event hook to add api-version query parameter to all requests
+    def add_api_version(request: httpx.Request) -> None:
+        # Add api-version query parameter if not present
+        url_str = str(request.url)
+        if "api-version" not in url_str:
+            separator = "&" if "?" in url_str else "?"
+            request.url = httpx.URL(f"{url_str}{separator}api-version={api_version}")
+
+    http_client = httpx.Client(
+        headers={"api-key": llm_api_key},
+        event_hooks={"request": [add_api_version]},
+        timeout=60.0,
+    )
+
+    # Configure ChatOpenAI directly with AI Café API settings
+    llm = ChatOpenAI(
+        model="gpt-4.1",
+        api_key=llm_api_key,
+        base_url=base_url,
+        default_headers={"api-key": llm_api_key},
+        http_client=http_client,
+    )
     # llm = GoogleGenerativeAI(
     #     model="gemini-2.5-flash-preview-05-20", api_key=llm_api_key
     # )
@@ -123,7 +164,43 @@ def get_response(
     If question is not from the database and SQL query is not valid, respond with "Sorry, The question is out of my context. Ask me only database related questions".
     """
     prompt = ChatPromptTemplate.from_template(template)
-    llm = ChatOpenAI(model="gpt-4-0125-preview", api_key=llm_api_key)
+
+    # Get AI Café API configuration from environment variables
+    base_url = os.getenv("AICAFE_BASE_URL")
+    api_version = os.getenv("AICAFE_API_VERSION")
+
+    if not base_url:
+        raise ValueError(
+            "AICAFE_BASE_URL environment variable is required. Please set it in your .env file."
+        )
+    if not api_version:
+        raise ValueError(
+            "AICAFE_API_VERSION environment variable is required. Please set it in your .env file."
+        )
+
+    # Create custom HTTP client for AI Café API with query parameter
+    # Use event hook to add api-version query parameter to all requests
+    def add_api_version(request: httpx.Request) -> None:
+        # Add api-version query parameter if not present
+        url_str = str(request.url)
+        if "api-version" not in url_str:
+            separator = "&" if "?" in url_str else "?"
+            request.url = httpx.URL(f"{url_str}{separator}api-version={api_version}")
+
+    http_client = httpx.Client(
+        headers={"api-key": llm_api_key},
+        event_hooks={"request": [add_api_version]},
+        timeout=60.0,
+    )
+
+    # Configure ChatOpenAI directly with AI Café API settings
+    llm = ChatOpenAI(
+        model="gpt-4.1",
+        api_key=llm_api_key,
+        base_url=base_url,
+        default_headers={"api-key": llm_api_key},
+        http_client=http_client,
+    )
 
     chain = (
         RunnablePassthrough.assign(query=lambda _: sql_query).assign(
